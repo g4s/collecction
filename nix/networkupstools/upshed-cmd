@@ -1,0 +1,128 @@
+#! /usr/bin/env python3
+
+import subprocess
+import sys
+import syslog
+
+from datetime import datetime
+
+# import 3rd party packages
+import libvirt
+import paramiko
+
+
+def getVMs(hypervisor="localhost": str) -> list:
+	'''collect all running virtual machines on a given host
+
+		Parameters
+		-------------
+			hypervisor: string
+				FQDN of a hypervisor or per default "localhost"
+
+		Return
+		-------------
+			vms: list
+				list of running virtual machines
+	'''
+
+	vms = []
+
+	uri = 'qemu+ssh://' + config['virtmanager'] + '@' + hypervisor + '/system'
+	conn = libvirt.openReadOnly(uri)
+
+	# fetch all running virtual machines and resolve domain name
+	for domain in conn.listDomainsID():
+		vms.append(conn.lookupByID(domain).name())
+
+	conn.close()
+
+	return vms
+
+
+def migrateVM(vmname: str, hypervisor="localhost": str) -> None:
+	uri = 'qemu+ssh://' + config['virtmanager'] + '@'  hypervisor + '/system'
+	srchyper = libvirt.open(uri)
+
+    uri = 'qemu+ssh://' + config['virtmanager'] + '@' + config['backuphypervisor'] + '/system'
+    desthyper = libvirt.open(uri)
+
+    srcdom = srchyper.lookupmByName(vmname)
+
+    # initiate the live migration - will also measure the migration duration in seconds
+    # dom lifecycle is documented under https://libvirt-python.readthedocs.io/lifecycle-control/
+    timeStart = datetime.now()
+    timeStop = None
+
+    destdom = srcdom.migrate(desthyper, VIR_MIGRATE_LIVE, None, None, 0)
+
+    timeStop = datetime.now()
+    duration = timeStop - timeStart
+
+    # write syslog entry
+    syslog.syslog('Migrated virtual machine ' 
+    	+ vmname 
+    	+ '@' 
+    	+ hypervisor 
+    	+ ' --> ' 
+    	+ config['backuphypervisor']
+    	+ 'in '
+    	+ duration.total_seconds
+    	+ 'seconds.'  )
+
+    # closing connections
+    srchyper.close()
+    desthyper.close()
+
+
+def main(param: str) -> None:
+	''' main-function
+
+		Parameters
+		-------------
+			param: string
+				defines which operation should be executed - there are some
+				predined options strings that can be used. If none of this
+				possibilities is used, the main function will report an
+				error. Possible command-strings are:
+					onbatt - should be used, if upsmon reports, that power
+					         is delivered from the battery.
+
+		Return
+		-------------
+			nothing
+	'''
+	match param:
+		case "onbatt":
+			syslog.syslog('powercontrol detected that system is running on battery!')
+			syslog.syslog('powercontrol will initiate a gracefull shutdown')
+
+			# migrating virtual machines on defined hypervisors
+			timeStart = datetime.now()
+
+			for hypervisor in config['localhypervisor']:
+				migratevms = getVMs(hypervisor)
+				for vm in migratevms:
+					if vm not in config['ignorevms']:
+						migrateVM(vm, hypervisor)
+
+			timeStop = datetime.now()
+			duration = timeStop - timeStart
+			syslog.syslog('powercontrol transfered all running virtual'
+				+ 'machines in total ' + duration.total_seconds())
+
+			# initiate gracefull shutdowns over ssh
+			for host in config['shutdownhosts']:
+				conn = paramiko.SSHClient()
+				conn.load_system_host_keys()
+				conn.look_for_keys(True)
+				conn.connect(host, username=config['powercontroluser'])
+
+				stdin, stdout, stderr = conn.exec_command('shutdown -h now')
+
+				syslog.syslog('powercontrol initiate gracefull shutdown for ' + host )
+		case _:
+			pass
+
+
+if __name__ == '__main__':
+	main(sys.argv[1])

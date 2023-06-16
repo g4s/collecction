@@ -34,7 +34,7 @@
 # Fetch latest release tag from github repo, so it' s possible
 # to simply fetch this release with something like curl.
 #
-# getGitHubRelease() requires jq installed on system.
+# getGitHubRelease() requires jq and curl installed on system.
 #
 # Globals:
 #	None
@@ -44,12 +44,20 @@
 #
 # Outputs:
 #	stdout - the release-tag
+#   stderr - if dependencies are not satisfied
 #
 # Returns
-# 	None
+# 	 0 - if the execution has no problems
+#  > 0 - if an error occurs
 ###################
 function getGitHubRelease () {
-	echo=$(curl -sL "https://api.github.com/repos/${1}/releases/latest" | jq -r ".tag_name")
+	if [[ command -v jq ]]; then
+		if [[ command -v curl ]]; then
+			echo=$(curl -sL "https://api.github.com/repos/${1}/releases/latest" | jq -r ".tag_name")
+		fi
+	else
+		>&2 echo "getGitHubRelease() - dependencies not satisfied"
+		return 1
 }
 
 

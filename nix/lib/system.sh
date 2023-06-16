@@ -84,3 +84,106 @@ function getHostArch() {
 
 	echo "${arch}"	
 }
+
+
+###################
+# loggging actions to logfile or syslog
+#
+# Globals:
+# 	logging (bool)
+#   logfile (string) - (optional) if defined advancedLogging() will write 
+#                                 to this file
+#   debug (bool)     - if set to true advancedLogging() will also write 
+#                      to sdtoud
+#
+# Arguments:
+# 	mode (string) - syslog/file/both
+#   msg (strig)
+#
+# Outputs:
+#	None
+# 
+# Returns:
+# 	None
+#
+# Signatures:
+#	advancedLogger $mode $msg
+#   advancedLogger $msg
+###################
+function advancedLogger () {
+	function createLogFile () {
+
+		# check if logfile is given in $logfile
+		if ! [[ -z ${logfile} ]]; then
+
+			# check if logfile is existend
+			if [[ -e ${logfile} ]];
+
+				# check if logfile is writeable
+				if ! [[ -w ${logfile} ]];
+		    		>&2 echo "could not write to given logfile"
+		    	fi
+
+		    # create if possible from given $logfile
+		    else
+		    	logdir=$(command -v dirname) $logfile
+
+		    	# test if directory is writeable
+		    	if [[ -w ${logdir} ]]; then
+		    		touch ${logfile}
+		    fi
+
+		# create logfile with mktemp, if no logfile is given in $logfile
+		else
+			declare -g logfile=$(command -v mktemp)
+		fi
+	}
+
+	function writeToLogFile () {
+		createLogFile
+
+		now=$(command -v date ) -Is
+		if [[ debug ]]; then
+			echo ${1}
+		fi
+		echo ${now} +': ' + ${1} >> ${logfile}
+	}
+
+	if [[ logging ]]; then
+		case $0 in
+			0)
+				>&2 echo "advancedLogger() to few arguments."
+				return 1
+				;;
+			1)
+				if [[ $1 == 'syslog' ]] || [[ $1 == 'file' ]] || [[ $1 == 'both' ]]; then
+					>&2 echo "advancedLogger() to few arguments."
+					return 1
+				else
+					createLogFile
+
+					writeToLogFile ${1}
+					logger ${1}
+				fi
+				;;
+			2)
+				if [[ ${1} == 'syslog' ]] || [[ ${1} == 'file' ]] || [[ ${1} == 'both' ]]; then
+					if [[ ${1} == 'syslog' ]]; then
+						logger ${2}
+					fi
+
+					if [[ ${1} == 'file' ]]; then
+						createLogFile
+						writeToLogFile ${2}
+					fi
+
+					if [[ ${1} == 'both' ]]; then
+						createLogFile
+
+						writeToLogFile ${2}
+						logger ${2}
+					fi
+				;;	
+		esac
+	fi
+}

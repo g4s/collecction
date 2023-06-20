@@ -13,11 +13,11 @@ $startdir = (Get-Location).Path
 if (Get-Volume -FileSystemLabel Ventoy -ErrorAction SilentlyContinue) {
 	Write-Host "CrashImage is already mounted"
 } else {
-	Mount-DiskImge -ImagePath "D:\CrashImage.vhd"
+	Mount-DiskImage -ImagePath "D:\CrashImage.vhd"
 
 	$volume = (Get-Volume -FileSystemLabel Ventoy).DriveLetter
 	$startexe = $volume + ':\WinTools\SyMenu.exe'
-	Start-Process §startexe
+	Start-Process $startexe
 
 	$scriptdir = $volume + ':\scripts'
 	Set-Location -Path $scriptdir

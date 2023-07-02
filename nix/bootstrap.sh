@@ -29,7 +29,7 @@
 #####
 # global vars
 #####
-playbook = "https://bit.ly/xxxxx"
+playbook = "https://bit.ly/g4s3-bootstrap-playbook"
 
 function checkCommand () {
 	return command -v $1
@@ -274,6 +274,7 @@ function main () {
 	# ansible tag-groups:
 	#   - check_vars
 	# 	- sys
+	#   - user
 	#	- config
 	#	- dnf-extra
 	# 	- tailscale

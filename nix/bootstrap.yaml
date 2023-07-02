@@ -1,0 +1,199 @@
+# @author   : Gregor A. Segner
+# @license  : BSD-3-clause ( --> https://opensource.org/license/bsd-3-clause )
+#
+# @plattform: [nix, windows]
+# @repo     : https://github.com/g4s/collecction
+# @issues   : https://github.com/g4s/collecction/issues
+#
+# @version  : development 
+#
+# ansible playbook for bootstrapping a given host
+# normally this playbook will be invoked from boottrap.sh
+#
+# @copyright: 2023 - Gregor A. Segner
+---
+
+- hosts: all
+  handler:
+    - name: update dnf cache
+      ansible.builtin.command: 'dnf makecache'
+
+    - name: execute etckeeper
+      ansible.builtin.shell: |
+        if [[ command -v etckeeper ]]; then
+          etckeeper commit 'auto-commit by ansible'
+        fi
+      args:
+        argv:
+          chdir: '/etc/'
+
+  tasks:
+    # ensure that global vars are set and not empty
+    # all vars can be set with the parameter --extra-vars
+    - ansible.builtin.assert:
+        that:
+          - hostname != ''
+          - maintainuser != ''
+          - maintainuser != 'root'
+          - maintainuserpw != ''
+          - sslh-enable != ''
+          - endlessh-enable != ''
+        quiet: true
+      tags:
+        - check_vars
+
+
+    - name: update system
+      block:
+        - ansible.builtin.dnf:
+            name: '*'
+            state: latest
+          when: ansible_os_family == 'RedHat'
+      tags:
+        - sys
+
+
+    - name: ensure dnf is configured on system
+      block:
+        # enable EPEL
+        - ansible.builtin.command: '{{ item }}'
+          loop:
+            - 'dnf config-manager --set-enabled crb'
+            - 'dnf install -y epel-release'
+          notify:
+            - update dnf cache
+      when: ansible_os_family == 'RedHat'
+      tags:
+        - dnf-extra
+        - sys
+
+
+    - name: set hostname
+      block:
+        - ansible.builtin.hostname:
+            name: '{{ hostname }} '
+          when: ansible_os_family != 'Windows'
+      tags:
+        - sys
+
+
+    - name: create maintenance user
+      block:
+        - ansible.builtin.user:
+            name: '{{ maitaineuser }}'
+            password: ' {{ maintainuserpw }}'
+            groups: 'wheel'
+          when: ansible_os_family != 'Windows'
+
+        # @ToDo creating useraccount for yay
+
+        # holy shit - windows want a plain text password during creation
+        - ansible.windows.win_user:
+            name: ' {{ maintainuser }}'
+          when: ansible_os_family == 'Windows'
+      tags:
+        - sys
+        - user
+
+    - name: deploy tailwind
+      block:
+        # @ToDo implement
+      tags:
+        - tailwind
+
+
+    - name: deploy rport
+      block:
+        # @ToDo implement
+      tags:
+        - rport
+
+
+    - name: deploy ssh
+      block:
+        # @ToDo
+        #
+        # - instaling endlessh
+        # - installing sllh
+        # - installing mosh
+        # - configure fal2ban --> install fail2ban before
+        # - removing root login
+        # - limit login tp tailscale interface only, if present
+
+        # check if tailscale device is present on system
+        # this check is necessary, so we can decide, if we can limit
+        # ssh/mosh connections to tailwind only
+        - ansible.builtin.command: 'ifconfig | grep "tailscale"'
+          register: tailscale
+
+        - ansible.builtin.command: 'ifconfig tailscale0 | sed -n 2p | awk "{$1=$1},1 | cut -d " " -f2'
+          register: tailscalev4
+          when: tailscale.rc != 0
+
+        - ansible.builtin.command: 'ifconfig tailscale0 | sed -n 3p | awk "{$1=$1},1 | cut -d " " -f2'
+          register: tailscalev6
+          when: tailscale.rc != 0
+
+        # check if fail2ban configuraton directory exists
+        - ansible.builtin.stat:
+            path: '/etc/fail2ban'
+          register: fail2ban
+
+        # installing sslh from source
+        - ansible.builtin.git:
+            repo: 'https://github.com/yrutschle/sslh.git'
+            dest: '/usr/local/src/sslh'
+            update: true
+          when: ( sslh-enable == true ) and
+                ( ansible_os_family != 'Windows' )
+
+        - ansible.builtin.shell: |
+            # build sslh
+            make
+
+            # installing sslh
+            cp sslh-fork /usr/local/sbin/sslh-fork
+            cp basic.conf /etc/sslh.conf
+          args:
+            chdir: '/usr/local/src/sslh/'
+          when: ( sslh-enable == true ) and
+                ( ansible_os_family != 'Windows' )
+          notify:
+            - excute etckeeper
+
+        ## installing endlessh from source
+        - ansible.builtin.git:
+            repo: 'https://github.com/skeeto/endlessh.git'
+            dest: '/usr/local/src/endlessh'
+            update: yes
+          when: ( endledssh-enabled == true ) and
+                ( ansible_os_family != 'Windows' )
+
+        - ansible.builtin.shell: |
+            # build endlessh
+            make
+          args:
+            chdir: '/usr/local/src/endlessh/'
+          when: ( endledssh-enabled == true ) and
+                ( ansible_os_family != 'Windows' )
+
+        ## installing mosh
+        - ansible.builtin.dnf:
+            name: 'mosh'
+            state: latest
+          when: ansible_os_family ==  'Redhat'
+
+        # utilize prior defined variable tailscale to decide
+        # if we limit ssh access to tailscale VPN only
+        - name: limit ssh/mosh connectins to VPN only
+          # @ToDo implement
+          # --> OpenSSH directive 'listenAddress' --> man 5 sshd.conf
+          when: tailscale.rc != 0
+
+        # configure fail2ban, if installed on system
+        - name: configure fail2ban for SSH
+          # @ToDo imlement
+          when: fail2ban.stat.exists
+
+      tags:
+        - ssh

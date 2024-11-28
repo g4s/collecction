@@ -1,11 +1,12 @@
 #! /usr/bin/env python3
 
 import configparser
+import deepdiff
 import os
 import requests
 import time
 
-from dateitime import date
+from datetime import date
 from fritzconnection.lib.fritzstatus import FritzStatus
 
 def main():
@@ -22,7 +23,7 @@ def main():
 
         conf['prometheus'] = {}
         conf['prometheus']['uri']  = os.environ.get('PROMETHEUS_URI')
-        conf['prometheus']['port'] = os.environ.get('PROMETHEUS_PORT') or "8080"
+        conf['prometheus']['port'] = os.environ.get('PROMETHEUS_PORT') or "9090"
 
     def fetchLog(fritzcon):
         pass
@@ -30,14 +31,16 @@ def main():
     def writePrometheus(config, msgline):
         pass
 
-    fc = FritzStastus(address="", password="")
+    fc = FritzStatus(address=conf['fritzbox']['url'], password="")
     logbuffer = ""
 
     while True:
         localbuffer = fetchLog(fc)
+        
+        delta = deepdiff.DeepDiff(logbuffer, localbuffer, ignore_string_case=True)
 
-        for line in logbuffer:
-            for tmpline in localbuffer:
-                if (tmpline not in line):
-                    writePrometheus(conf['prometheus'], tmpline)
+        for line in delta.values_changed.root:
+            logbuffer.append(line.new_value)
+            writePrometheus(conf['prometheus'], line)
+
         time.sleep(60)

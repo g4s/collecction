@@ -11,7 +11,9 @@
 import argparse
 import os
 import platform
+import shutil
 import subprocess
+import sys
 
 from pathlib import Path
 
@@ -45,27 +47,79 @@ def main():
     match platform.system():
         case 'Windows':
             writeOutput("cleanup script is running on MS Windows", args.silence)
-        case other:
-            writeOutput("cleanup opertions will be run on POSIX system", args.silence)
-            if platform.system() != "Darwin":
-                distri = platform.freedesktop_os_release()
-                match distri["ID"].lower():
-                    case "debian":
-                        writeOutput("detected apt based system - initiate system cleaning", args.silence)
-                        subprocess.run(["apt", "clean"])
-                        subprocess.run(["apt", "autoremove", "--purge"])
-                        for deb in Path("/var/cache/apt/archives/").glob("*.deb"):
-                            os.remove(deb)
-                    case other:
+
+            # @ToDo:
+            #   - remove old eventLogs
+            #   - remove old restore points
+            #   - cleanup %TMPDIR%
+            #   - remove dump files (memmory & mini dump)
+            #   - remove old updates
+            #   - remove unused chocolatey artefacts
+            #   - cleanup winget installations
+
+        case "Linux":
+            writeOutput("cleanup will be running on Linux", args.silence)
+
+            if os.getuid != 0:
+                writeOutput("script is not invoced with sufficient rights - terminate", args.silence)
+                sys.exit()
+
+            # check if script is invoced by sytemd on Linux systems
+            if os.getenv("INVOCATION_ID"):
+                writeOutput("cleanup process is invocated by systemd", args.silence)
+
+            # chreating snapshot if timeshift is presend on system
+            if shutil.which("timeshift"):
+                writeOutput("found timeshift installed on system: creating snapshot", args.silence)
+                subprocess.run(["timeshift", "--create", "--tags 0", "--scripted"])
+
+            # checking for distribution specific things
+            distri = platform.freedesktop_os_release()
+            match distri["ID"].lower():
+
+                # manage deb based distributions
+                case "debian" | "ubuntu":
+                    writeOutput("detected apt based system - initiate system cleaning", args.silence)
+                    subprocess.run(["apt", "clean"])
+                    subprocess.run(["apt", "autoremove", "--purge"])
+                    for deb in Path("/var/cache/apt/archives/").glob("*.deb"):
+                        os.remove(deb)
+
+                # manage rpm based distributions
+                case "fedora":
+                    writeOutput("detected rpm based system - initiate system cleaning", args.silence)
+                    subprocess.run(["dnf", "autoremove"])
+                    subprocess.run(["dnf", "system-upgrade", "clean"])
+                    subprocess.run(["dnf", "clean", "packages"])
+
+                # manage all other Linux distributions
+                case other:
                         writeOutput("could not identify linux distribution", args.silence)
 
-                if shutil.which("journalctl"):
-                    writeOutput("removing journal entries older then 7 days", args.silence)
-                    subprocess.run(["jornalctl", "--vacuum-time=7d"])
+            #####
+            ## proceed with not package manager specific tasks
+            #####
 
+            # removing unused oci container
+            if shutil.which("podman"):
+                writeOutput("found podman on system - will remove old and unsused images", args.silence)
+                subprocess.run("podman", "system", "prune -a -f")
+
+            # minimize jouarnd logs
+            if shutil.which("journalctl"):
+                writeOutput("removing journald entries older then 7 days", args.silence)
+                subprocess.run("journalctl", "--vacuum-time=7d")
+
+            # cleaning /tmp
             writeOutput("removing files from /tmp", args.silence)
-            for f in Path('/tmp/').glob("*"):
+            for f in Path("/tmp/").glob("*"):
                 os.remove(f)
+
+        case "Darwin":
+            pass
+        case other:
+            pass
+
     writeOutput("all cleanup tasks are executed", args.silence)
 
 
